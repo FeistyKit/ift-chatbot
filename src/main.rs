@@ -69,45 +69,19 @@ fn input_thread() -> (JoinHandle<()>, Receiver<InputtedCommand>) {
                         continue;
                     }},
                 "startff" => {
-                    if inp.len() < 3 {
-                        println!("Not enough arguments!");
+                    if startff(&inp, &tx) {
                         continue;
-                    }
-                    if let Ok(amt) = inp[2].parse::<usize>() {
-                        if let Ok(file) = File::open(inp[1]) {
-                            tx.send(InputtedCommand::StartFromFile{file, amount: amt}).unwrap();
-                        } else {
-                            println!("Could not open file with name {} here!", inp[1]);
-                        }
-                    } else {
-                        println!("Invalid number argument!")
                     }
                 },
                 "save" => {
-                    if inp.len() < 2 {
-                        println!("Not enough arguments!");
+                    if save(&inp, &tx) {
                         continue;
-                    }
-                    if let Ok(file) = File::create(inp[1])  {
-                        tx.send(InputtedCommand::Save{file}).unwrap();
-                    } else {
-                        println!("Couldn't create a file with name {} here!", inp[1]);
                     }
                 },
                 "endround" => {
-                    if inp.len() < 2 {
-                        println!("Not enough arguments!");
+                    if endround(inp, &tx) {
                         continue;
                     }
-                   if let Ok(amt) = inp[1].parse::<u8>() {
-                       if amt == 1 || amt == 2 {
-                           tx.send(InputtedCommand::EndRound{correct_answer: amt}).unwrap();
-                       } else {
-                           println!("{} is not 1 or 2!", inp[1]);
-                       }
-                   }  else {
-                       println!("{} is not a valid argument!", inp[1]);
-                   }
                 },
                 "exit" => {
                     if !has_asked_to_exit {
@@ -124,6 +98,53 @@ fn input_thread() -> (JoinHandle<()>, Receiver<InputtedCommand>) {
         }
     }).unwrap();
     (input_thread, rx)
+}
+
+fn endround(inp: Vec<&str>, tx: &Sender<InputtedCommand>) -> bool {
+    if inp.len() < 2 {
+        println!("Not enough arguments!");
+        return true;
+    }
+    if let Ok(amt) = inp[1].parse::<u8>() {
+       if amt == 1 || amt == 2 {
+           tx.send(InputtedCommand::EndRound{correct_answer: amt}).unwrap();
+       } else {
+           println!("{} is not 1 or 2!", inp[1]);
+       }
+                       }  else {
+       println!("{} is not a valid argument!", inp[1]);
+                       }
+    false
+}
+
+fn save(inp: &Vec<&str>, tx: &Sender<InputtedCommand>) -> bool {
+    if inp.len() < 2 {
+        println!("Not enough arguments!");
+        return true;
+    }
+    if let Ok(file) = File::create(inp[1])  {
+        tx.send(InputtedCommand::Save{file}).unwrap();
+    } else {
+        println!("Couldn't create a file with name {} here!", inp[1]);
+    }
+    false
+}
+
+fn startff(inp: &Vec<&str>, tx: &Sender<InputtedCommand>) -> bool {
+    if inp.len() < 3 {
+        println!("Not enough arguments!");
+        return true;
+    }
+    if let Ok(amt) = inp[2].parse::<usize>() {
+        if let Ok(file) = File::open(inp[1]) {
+            tx.send(InputtedCommand::StartFromFile{file, amount: amt}).unwrap();
+        } else {
+            println!("Could not open file with name {} here!", inp[1]);
+        }
+    } else {
+        println!("Invalid number argument!")
+    }
+    false
 }
 
 fn start_command(inp: &Vec<&str>, tx: &Sender<InputtedCommand>) -> bool {
