@@ -1,14 +1,7 @@
 mod input;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    error::Error,
-    fs::{self, File},
-    hash::Hash,
-    io::{Read, Write},
-    sync::{mpsc::channel, Arc, Mutex},
-};
-static LOGIN: String = "feistyshade".to_string();
+use std::{cell::RefCell, collections::HashMap, error::Error, fs::{self, File}, hash::Hash, io::{Read, Write}, rc::Rc, sync::{mpsc::channel, Arc, Mutex}};
+static LOGIN: &str = "feistyshade";
 use tokio::sync::mpsc::UnboundedReceiver;
 use twitch_irc::{
     login::StaticLoginCredentials,
@@ -26,16 +19,7 @@ async fn main() {
             "Don't forget to change to keshy's twitch channel and implement display of winners!"
         );
     }
-    let (tx_twitch, rx_twitch) = channel::<(String, String)>();
-    let tx_twitch_here = tx_twitch.clone();
-    let (input_handle, rx_input) = input_thread();
-    let (mut incoming_messages, client) = prepare_client();
-    let default_amount = Arc::new(Mutex::new(None));
-    let async_side_default_amount = Arc::clone(&default_amount);
-    let map = Arc::new(Mutex::new(HashMap::<String, BetDetails>::new()));
-    let leave = Arc::new(Mutex::new(false));
-    let async_side_leave = Arc::clone(&leave);
-    let async_side_map = Arc::clone(&map);
+    let (tx_twitch, rx_twitch, input_handle, rx_input, mut incoming_messages, client, default_amount, async_side_default_amount, map, leave, async_side_leave, async_side_map) = prepare_stuff();
     let message_handle = tokio::spawn(async move {
         while let Some(raw_message) = incoming_messages.recv().await {
             if *async_side_leave.lock().unwrap() {
@@ -51,45 +35,65 @@ async fn main() {
             }
         }
     });
-    client.join(LOGIN.clone());
+    client.join(LOGIN.to_string());
+    let client = Rc::new(RefCell::new(client));
     println!("Bot has connected!");
-    'checking: loop {
-        while let Ok(event) = rx_input.try_recv() {
-            match event {
-                input::InputtedCommand::Start { amount } => {
-                    *default_amount.lock().unwrap() = Some(amount);
-                    *map.lock().unwrap() = HashMap::new();
-                    client.say(LOGIN.clone(), format!("The event has started! To bet, say in chat '!bet <amount> <choice>', where the amount is how much you are betting, and the choice is which one you want to bet on! The default bank amount for this round is {}!", amount)).await.unwrap();
-                }
-                input::InputtedCommand::StartFromFile { file, amount } => {
-                    *default_amount.lock().unwrap() = Some(amount);
-                    *map.lock().unwrap() = parse_hashmap(file).unwrap_or_default();
-                    client.say(LOGIN.clone(), format!("The event has started! To bet, say in chat '!bet <amount> <choice>', where the amount is how much you are betting, and the choice is which one you want to bet on! The default bank amount for this round is {}! That means that if you haven't played in the previous rounds, you get {} points!", amount, amount)).await.unwrap();
-                }
-                input::InputtedCommand::Save { file } => {
-                    if let Err(e) = save_map(Arc::clone(&map), file) {
-                        eprintln!("An error occurred while saving the data: {:?}", e);
-                    }
-                }
-                input::InputtedCommand::EndRound { correct_answer } => {
-                    map.lock().unwrap().iter_mut().for_each(|(_, details)| {
-                        details.apply(correct_answer);
-                    });
-                    client.say(LOGIN.clone(), format!("The round has ended! Everyone who betted correctly will have the amounts added to their scores, and vice versa! The correct answer was {}", correct_answer)).await.unwrap();
-                }
-                input::InputtedCommand::Exit => {
-                    *leave.lock().unwrap() = true;
-                    break 'checking;
-                }
-            }
-        }
-
-        while let Ok((login, msg)) = rx_twitch.try_recv() {
-            client.say(login, msg).await.unwrap();
+    loop {
+        if check(&rx_input, Arc::clone(&default_amount), Arc::clone(&map), Rc::clone(&client), Arc::clone(&leave), &rx_twitch).await {
+            break;
         }
     }
     input_handle.join().unwrap();
     message_handle.await.unwrap();
+}
+
+async fn check(rx_input: &std::sync::mpsc::Receiver<input::InputtedCommand>, default_amount: Arc<Mutex<Option<usize>>>, map: Arc<Mutex<HashMap<String, BetDetails>>>, client: Rc<RefCell<TwitchIRCClient<twitch_irc::transport::tcp::TCPTransport<twitch_irc::transport::tcp::TLS>, StaticLoginCredentials>>>, leave: Arc<Mutex<bool>>, rx_twitch: &std::sync::mpsc::Receiver<(String, String)>) -> bool {
+    while let Ok(event) = rx_input.try_recv() {
+        match event {
+            input::InputtedCommand::Start { amount } => {
+                *default_amount.lock().unwrap() = Some(amount);
+                *map.lock().unwrap() = HashMap::new();
+                client.borrow().say(LOGIN.to_string(), format!("The event has started! To bet, say in chat '!bet <amount> <choice>', where the amount is how much you are betting, and the choice is which one you want to bet on! The default bank amount for this round is {}!", amount)).await.unwrap();
+            }
+            input::InputtedCommand::StartFromFile { file, amount } => {
+                *default_amount.lock().unwrap() = Some(amount);
+                *map.lock().unwrap() = parse_hashmap(file).unwrap_or_default();
+                client.borrow().say(LOGIN.to_string(), format!("The event has started! To bet, say in chat '!bet <amount> <choice>', where the amount is how much you are betting, and the choice is which one you want to bet on! The default bank amount for this round is {}! That means that if you haven't played in the previous rounds, you get {} points!", amount, amount)).await.unwrap();
+            }
+            input::InputtedCommand::Save { file } => {
+                if let Err(e) = save_map(Arc::clone(&map), file) {
+                    eprintln!("An error occurred while saving the data: {:?}", e);
+                }
+            }
+            input::InputtedCommand::EndRound { correct_answer } => {
+                map.lock().unwrap().iter_mut().for_each(|(_, details)| {
+                    details.apply(correct_answer);
+                });
+                client.borrow().say(LOGIN.to_string(), format!("The round has ended! Everyone who betted correctly will have the amounts added to their scores, and vice versa! The correct answer was {}", correct_answer)).await.unwrap();
+            }
+            input::InputtedCommand::Exit => {
+                *leave.lock().unwrap() = true;
+                return true;
+            }
+        }
+    }
+    while let Ok((login, msg)) = rx_twitch.try_recv() {
+        client.borrow().say(login, msg).await.unwrap();
+    }
+    false
+}
+#[allow(clippy::type_complexity, clippy::too_many_arguments, clippy::mutex_atomic)]
+fn prepare_stuff() -> (std::sync::mpsc::Sender<(String, String)>, std::sync::mpsc::Receiver<(String, String)>, std::thread::JoinHandle<()>, std::sync::mpsc::Receiver<input::InputtedCommand>, UnboundedReceiver<ServerMessage>, TwitchIRCClient<twitch_irc::transport::tcp::TCPTransport<twitch_irc::transport::tcp::TLS>, StaticLoginCredentials>, Arc<Mutex<Option<usize>>>, Arc<Mutex<Option<usize>>>, Arc<Mutex<HashMap<String, BetDetails>>>, Arc<Mutex<bool>>, Arc<Mutex<bool>>, Arc<Mutex<HashMap<String, BetDetails>>>) {
+    let (tx_twitch, rx_twitch) = channel::<(String, String)>();
+    let (input_handle, rx_input) = input_thread();
+    let (incoming_messages, client) = prepare_client();
+    let default_amount = Arc::new(Mutex::new(None));
+    let async_side_default_amount = Arc::clone(&default_amount);
+    let map = Arc::new(Mutex::new(HashMap::<String, BetDetails>::new()));
+    let leave = Arc::new(Mutex::new(false));
+    let async_side_leave = Arc::clone(&leave);
+    let async_side_map = Arc::clone(&map);
+    (tx_twitch, rx_twitch, input_handle, rx_input, incoming_messages, client, default_amount, async_side_default_amount, map, leave, async_side_leave, async_side_map)
 }
 
 fn save_map(
