@@ -1,4 +1,9 @@
-use std::{fs::File, io::stdin, sync::mpsc::{Receiver, Sender, channel}, thread::{Builder, JoinHandle}};
+use std::{
+    fs::File,
+    io::stdin,
+    sync::mpsc::{channel, Receiver, Sender},
+    thread::{Builder, JoinHandle},
+};
 
 #[derive(Debug)]
 pub enum InputtedCommand {
@@ -66,14 +71,17 @@ fn endround(inp: Vec<&str>, tx: &Sender<InputtedCommand>) -> bool {
         return true;
     }
     if let Ok(amt) = inp[1].parse::<u8>() {
-       if amt == 1 || amt == 2 {
-           tx.send(InputtedCommand::EndRound{correct_answer: amt}).unwrap();
-       } else {
-           println!("{} is not 1 or 2!", inp[1]);
-       }
-                       }  else {
-       println!("{} is not a valid argument!", inp[1]);
-                       }
+        if amt == 1 || amt == 2 {
+            tx.send(InputtedCommand::EndRound {
+                correct_answer: amt,
+            })
+            .unwrap();
+        } else {
+            println!("{} is not 1 or 2!", inp[1]);
+        }
+    } else {
+        println!("{} is not a valid argument!", inp[1]);
+    }
     false
 }
 
@@ -82,8 +90,8 @@ fn save(inp: &[&str], tx: &Sender<InputtedCommand>) -> bool {
         println!("Not enough arguments!");
         return true;
     }
-    if let Ok(file) = File::create(inp[1])  {
-        tx.send(InputtedCommand::Save{file}).unwrap();
+    if let Ok(file) = File::create(inp[1]) {
+        tx.send(InputtedCommand::Save { file }).unwrap();
     } else {
         println!("Couldn't create a file with name {} here!", inp[1]);
     }
@@ -97,7 +105,8 @@ fn startff(inp: &[&str], tx: &Sender<InputtedCommand>) -> bool {
     }
     if let Ok(amt) = inp[2].parse::<usize>() {
         if let Ok(file) = File::open(inp[1]) {
-            tx.send(InputtedCommand::StartFromFile{file, amount: amt}).unwrap();
+            tx.send(InputtedCommand::StartFromFile { file, amount: amt })
+                .unwrap();
         } else {
             println!("Could not open file with name {} here!", inp[1]);
         }
