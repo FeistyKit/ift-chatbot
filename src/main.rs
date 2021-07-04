@@ -22,7 +22,9 @@ use crate::input::input_thread;
 #[tokio::main]
 async fn main() {
     if !cfg!(debug_assertions) {
-        panic!("Don't forget to change to keshy's acct!");
+        panic!(
+            "Don't forget to change to keshy's twitch channel and implement display of winners!"
+        );
     }
     let (tx_twitch, rx_twitch) = channel::<(String, String)>();
     let (input_handle, rx_input) = input_thread();
@@ -44,7 +46,7 @@ async fn main() {
                     message,
                     tx_twitch.clone(),
                     async_side_map.clone(),
-                ) 
+                )
             }
         }
     });
@@ -66,18 +68,29 @@ async fn main() {
                 if let Err(e) = save_map(Arc::clone(&map), file) {
                     eprintln!("An error occurred while saving the data: {:?}", e);
                 }
-            },
-            input::InputtedCommand::EndRound { correct_answer } => map.lock().unwrap().iter_mut().for_each(|(_, details)| {
-                details.apply(correct_answer);
-            }),
+            }
+            input::InputtedCommand::EndRound { correct_answer } => {
+                map.lock().unwrap().iter_mut().for_each(|(_, details)| {
+                    details.apply(correct_answer);
+                })
+            }
         }
     }
     input_handle.join().unwrap();
     message_handle.await.unwrap();
 }
 
-fn save_map(map: Arc<Mutex<HashMap<String, BetDetails>>>, mut file: File) -> Result<(), Box<dyn Error>> {
-    let ser = serde_json::to_string(&map.lock().unwrap().iter().map(|(id, details)| BetDetailsSerializable::from(details.clone(), id.clone())).collect::<Vec<BetDetailsSerializable>>())?;
+fn save_map(
+    map: Arc<Mutex<HashMap<String, BetDetails>>>,
+    mut file: File,
+) -> Result<(), Box<dyn Error>> {
+    let ser = serde_json::to_string(
+        &map.lock()
+            .unwrap()
+            .iter()
+            .map(|(id, details)| BetDetailsSerializable::from(details.clone(), id.clone()))
+            .collect::<Vec<BetDetailsSerializable>>(),
+    )?;
     file.write_all(ser.as_bytes())?;
     Ok(())
 }
@@ -86,8 +99,8 @@ fn handle_priv_msg(
     async_side_default_amount: Arc<Mutex<Option<usize>>>,
     message: PrivmsgMessage,
     tx_twitch: std::sync::mpsc::Sender<(String, String)>,
-    async_side_map: Arc<Mutex<HashMap<String, BetDetails>>>)
- {
+    async_side_map: Arc<Mutex<HashMap<String, BetDetails>>>,
+) {
     let default_bet_amount;
     if let Some(amount) = *async_side_default_amount.lock().unwrap() {
         default_bet_amount = amount;
@@ -121,14 +134,14 @@ fn handle_priv_msg(
                 tx_twitch
                     .send((login, format!("{}, {} is not 1 or 2!", name, split[2])))
                     .unwrap();
-                return ;
+                return;
             }
             choice = their_choice;
         } else {
             tx_twitch
                 .send((login, format!("{}, {} is not a number!", name, split[2])))
                 .unwrap();
-            return ;
+            return;
         }
         let mut map_handle = async_side_map.lock().unwrap();
         let map_entry = map_handle
@@ -145,7 +158,7 @@ fn handle_priv_msg(
                         ),
                     ))
                     .unwrap();
-                return ;
+                return;
             } else {
                 bet = their_bet;
             }
@@ -153,7 +166,7 @@ fn handle_priv_msg(
             tx_twitch
                 .send((login, format!("{}, {} is not a valid bet!", name, split[1])))
                 .unwrap();
-            return ;
+            return;
         }
         map_entry.bet_amount = Some(bet);
         map_entry.number_betted_on = Some(choice);
