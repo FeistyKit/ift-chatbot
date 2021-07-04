@@ -8,7 +8,7 @@ use std::{
     io::{Read, Write},
     sync::{mpsc::channel, Arc, Mutex},
 };
-
+static LOGIN: String = "feistyshade".to_string();
 use tokio::sync::mpsc::UnboundedReceiver;
 use twitch_irc::{
     login::StaticLoginCredentials,
@@ -27,6 +27,7 @@ async fn main() {
         );
     }
     let (tx_twitch, rx_twitch) = channel::<(String, String)>();
+    let tx_twitch_here = tx_twitch.clone();
     let (input_handle, rx_input) = input_thread();
     let (mut incoming_messages, client) = prepare_client();
     let default_amount = Arc::new(Mutex::new(None));
@@ -37,7 +38,7 @@ async fn main() {
     let async_side_map = Arc::clone(&map);
     let message_handle = tokio::spawn(async move {
         while let Some(raw_message) = incoming_messages.recv().await {
-            if !*async_side_leave.lock().unwrap() {
+            if *async_side_leave.lock().unwrap() {
                 break;
             }
             if let ServerMessage::Privmsg(message) = raw_message {
@@ -50,30 +51,41 @@ async fn main() {
             }
         }
     });
-    client.join("feistyshade".to_string());
-    while let Ok(event) = rx_input.recv() {
-        while let Ok((login, msg)) = rx_twitch.try_recv() {
-            client.say(login, msg).await.unwrap();
-        }
-        match event {
-            input::InputtedCommand::Start { amount } => {
-                *default_amount.lock().unwrap() = Some(amount);
-                *map.lock().unwrap() = HashMap::new();
-            }
-            input::InputtedCommand::StartFromFile { file, amount } => {
-                *default_amount.lock().unwrap() = Some(amount);
-                *map.lock().unwrap() = parse_hashmap(file).unwrap_or_default();
-            }
-            input::InputtedCommand::Save { file } => {
-                if let Err(e) = save_map(Arc::clone(&map), file) {
-                    eprintln!("An error occurred while saving the data: {:?}", e);
+    client.join(LOGIN.clone());
+    println!("Bot has connected!");
+    'checking: loop {
+        while let Ok(event) = rx_input.try_recv() {
+            match event {
+                input::InputtedCommand::Start { amount } => {
+                    *default_amount.lock().unwrap() = Some(amount);
+                    *map.lock().unwrap() = HashMap::new();
+                    client.say(LOGIN.clone(), format!("The event has started! To bet, say in chat '!bet <amount> <choice>', where the amount is how much you are betting, and the choice is which one you want to bet on! The default bank amount for this round is {}!", amount)).await.unwrap();
+                }
+                input::InputtedCommand::StartFromFile { file, amount } => {
+                    *default_amount.lock().unwrap() = Some(amount);
+                    *map.lock().unwrap() = parse_hashmap(file).unwrap_or_default();
+                    client.say(LOGIN.clone(), format!("The event has started! To bet, say in chat '!bet <amount> <choice>', where the amount is how much you are betting, and the choice is which one you want to bet on! The default bank amount for this round is {}! That means that if you haven't played in the previous rounds, you get {} points!", amount, amount)).await.unwrap();
+                }
+                input::InputtedCommand::Save { file } => {
+                    if let Err(e) = save_map(Arc::clone(&map), file) {
+                        eprintln!("An error occurred while saving the data: {:?}", e);
+                    }
+                }
+                input::InputtedCommand::EndRound { correct_answer } => {
+                    map.lock().unwrap().iter_mut().for_each(|(_, details)| {
+                        details.apply(correct_answer);
+                    });
+                    client.say(LOGIN.clone(), format!("The round has ended! Everyone who betted correctly will have the amounts added to their scores, and vice versa! The correct answer was {}", correct_answer)).await.unwrap();
+                }
+                input::InputtedCommand::Exit => {
+                    *leave.lock().unwrap() = true;
+                    break 'checking;
                 }
             }
-            input::InputtedCommand::EndRound { correct_answer } => {
-                map.lock().unwrap().iter_mut().for_each(|(_, details)| {
-                    details.apply(correct_answer);
-                })
-            }
+        }
+
+        while let Ok((login, msg)) = rx_twitch.try_recv() {
+            client.say(login, msg).await.unwrap();
         }
     }
     input_handle.join().unwrap();
@@ -92,6 +104,8 @@ fn save_map(
             .collect::<Vec<BetDetailsSerializable>>(),
     )?;
     file.write_all(ser.as_bytes())?;
+    println!("Saved!");
+
     Ok(())
 }
 
@@ -147,6 +161,9 @@ fn handle_priv_msg(
         let map_entry = map_handle
             .entry(message.sender.id)
             .or_insert_with(|| BetDetails::new(name.clone(), default_bet_amount));
+        if !map_entry.is_fresh() {
+            return;
+        }
         if let Ok(their_bet) = split[1].parse::<usize>() {
             if their_bet > map_entry.bank_amount {
                 tx_twitch
@@ -215,11 +232,6 @@ impl BetDetails {
         self.bet_amount.is_none() && self.number_betted_on.is_none()
     }
 
-    fn set_choices(&mut self, amount: usize, bet: u8) {
-        assert!(bet == 1 || bet == 2);
-        self.bet_amount = Some(amount);
-        self.number_betted_on = Some(bet);
-    }
     fn apply(&mut self, right_answer: u8) {
         assert!(right_answer == 1 || right_answer == 2);
         if right_answer == self.number_betted_on.unwrap() {

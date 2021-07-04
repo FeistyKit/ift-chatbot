@@ -11,6 +11,7 @@ pub enum InputtedCommand {
     StartFromFile { file: File, amount: usize },
     Save { file: File },
     EndRound { correct_answer: u8 },
+    Exit,
 }
 pub fn input_thread() -> (JoinHandle<()>, Receiver<InputtedCommand>) {
     let (tx, rx) = channel();
@@ -54,6 +55,7 @@ pub fn input_thread() -> (JoinHandle<()>, Receiver<InputtedCommand>) {
                         has_asked_to_exit = true;
                         continue;
                     } else {
+                        tx.send(InputtedCommand::Exit).unwrap();
                         break;
                     }
                 }
@@ -122,7 +124,6 @@ fn start_command(inp: &[&str], tx: &Sender<InputtedCommand>) -> bool {
         return true;
     }
     if let Ok(amt) = inp[1].parse::<usize>() {
-        println!("Started!");
         tx.send(InputtedCommand::Start { amount: amt }).unwrap();
     } else {
         println!("{} is an invalid argument!", inp[1]);
