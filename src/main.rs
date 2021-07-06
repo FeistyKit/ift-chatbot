@@ -1,6 +1,14 @@
 mod input;
-use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, collections::HashMap, error::Error, fs::{self, File}, hash::Hash, io::{Read, Write}, rc::Rc, sync::{mpsc::channel, Arc, Mutex}};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    error::Error,
+    fs::{self, File},
+    hash::Hash,
+    io::Write,
+    rc::Rc,
+    sync::{mpsc::channel, Arc, Mutex},
+};
 static LOGIN: &str = "feistyshade";
 use tokio::sync::mpsc::UnboundedReceiver;
 use twitch_irc::{
@@ -19,7 +27,20 @@ async fn main() {
             "Don't forget to change to keshy's twitch channel and implement display of winners!"
         );
     }
-    let (tx_twitch, rx_twitch, input_handle, rx_input, mut incoming_messages, client, default_amount, async_side_default_amount, map, leave, async_side_leave, async_side_map) = prepare_stuff();
+    let (
+        tx_twitch,
+        rx_twitch,
+        input_handle,
+        rx_input,
+        mut incoming_messages,
+        client,
+        default_amount,
+        async_side_default_amount,
+        map,
+        leave,
+        async_side_leave,
+        async_side_map,
+    ) = prepare_stuff();
     let message_handle = tokio::spawn(async move {
         while let Some(raw_message) = incoming_messages.recv().await {
             if *async_side_leave.lock().unwrap() {
@@ -39,7 +60,16 @@ async fn main() {
     let client = Rc::new(RefCell::new(client));
     println!("Bot has connected!");
     loop {
-        if check(&rx_input, Arc::clone(&default_amount), Arc::clone(&map), Rc::clone(&client), Arc::clone(&leave), &rx_twitch).await {
+        if check(
+            &rx_input,
+            Arc::clone(&default_amount),
+            Arc::clone(&map),
+            Rc::clone(&client),
+            Arc::clone(&leave),
+            &rx_twitch,
+        )
+        .await
+        {
             break;
         }
     }
@@ -47,21 +77,31 @@ async fn main() {
     message_handle.await.unwrap();
 }
 
-async fn check(rx_input: &std::sync::mpsc::Receiver<input::InputtedCommand>, default_amount: Arc<Mutex<Option<usize>>>, map: Arc<Mutex<HashMap<String, BetDetails>>>, client: Rc<RefCell<TwitchIRCClient<twitch_irc::transport::tcp::TCPTransport<twitch_irc::transport::tcp::TLS>, StaticLoginCredentials>>>, leave: Arc<Mutex<bool>>, rx_twitch: &std::sync::mpsc::Receiver<(String, String)>) -> bool {
+async fn check(
+    rx_input: &std::sync::mpsc::Receiver<input::InputtedCommand>,
+    default_amount: Arc<Mutex<Option<usize>>>,
+    map: Arc<Mutex<HashMap<String, BetDetails>>>,
+    client: Rc<
+        RefCell<
+            TwitchIRCClient<
+                twitch_irc::transport::tcp::TCPTransport<twitch_irc::transport::tcp::TLS>,
+                StaticLoginCredentials,
+            >,
+        >,
+    >,
+    leave: Arc<Mutex<bool>>,
+    rx_twitch: &std::sync::mpsc::Receiver<(String, String)>,
+) -> bool {
     while let Ok(event) = rx_input.try_recv() {
         match event {
             input::InputtedCommand::Start { amount } => {
                 *default_amount.lock().unwrap() = Some(amount);
                 *map.lock().unwrap() = HashMap::new();
                 client.borrow().say(LOGIN.to_string(), format!("The event has started! To bet, say in chat '!bet <amount> <choice>', where the amount is how much you are betting, and the choice is which one you want to bet on! The default bank amount for this round is {}!", amount)).await.unwrap();
-            }
-            input::InputtedCommand::StartFromFile { file, amount } => {
-                *default_amount.lock().unwrap() = Some(amount);
-                *map.lock().unwrap() = parse_hashmap(file).unwrap_or_default();
-                client.borrow().say(LOGIN.to_string(), format!("The event has started! To bet, say in chat '!bet <amount> <choice>', where the amount is how much you are betting, and the choice is which one you want to bet on! The default bank amount for this round is {}! That means that if you haven't played in the previous rounds, you get {} points!", amount, amount)).await.unwrap();
+                println!("Started!");
             }
             input::InputtedCommand::Save { file } => {
-                if let Err(e) = save_map(Arc::clone(&map), file) {
+                if let Err(e) = save_map(Arc::clone(&map), file, Arc::clone(&default_amount)) {
                     eprintln!("An error occurred while saving the data: {:?}", e);
                 }
             }
@@ -69,7 +109,8 @@ async fn check(rx_input: &std::sync::mpsc::Receiver<input::InputtedCommand>, def
                 map.lock().unwrap().iter_mut().for_each(|(_, details)| {
                     details.apply(correct_answer);
                 });
-                client.borrow().say(LOGIN.to_string(), format!("The round has ended! Everyone who betted correctly will have the amounts added to their scores, and vice versa! The correct answer was {}", correct_answer)).await.unwrap();
+                client.borrow().say(LOGIN.to_string(), format!("The round has ended! Everyone who betted correctly will have the amounts added to their scores, and vice versa! The correct answer was {}.", correct_answer)).await.unwrap();
+                println!("Round ended!");
             }
             input::InputtedCommand::Exit => {
                 *leave.lock().unwrap() = true;
@@ -82,8 +123,28 @@ async fn check(rx_input: &std::sync::mpsc::Receiver<input::InputtedCommand>, def
     }
     false
 }
-#[allow(clippy::type_complexity, clippy::too_many_arguments, clippy::mutex_atomic)]
-fn prepare_stuff() -> (std::sync::mpsc::Sender<(String, String)>, std::sync::mpsc::Receiver<(String, String)>, std::thread::JoinHandle<()>, std::sync::mpsc::Receiver<input::InputtedCommand>, UnboundedReceiver<ServerMessage>, TwitchIRCClient<twitch_irc::transport::tcp::TCPTransport<twitch_irc::transport::tcp::TLS>, StaticLoginCredentials>, Arc<Mutex<Option<usize>>>, Arc<Mutex<Option<usize>>>, Arc<Mutex<HashMap<String, BetDetails>>>, Arc<Mutex<bool>>, Arc<Mutex<bool>>, Arc<Mutex<HashMap<String, BetDetails>>>) {
+#[allow(
+    clippy::type_complexity,
+    clippy::too_many_arguments,
+    clippy::mutex_atomic
+)]
+fn prepare_stuff() -> (
+    std::sync::mpsc::Sender<(String, String)>,
+    std::sync::mpsc::Receiver<(String, String)>,
+    std::thread::JoinHandle<()>,
+    std::sync::mpsc::Receiver<input::InputtedCommand>,
+    UnboundedReceiver<ServerMessage>,
+    TwitchIRCClient<
+        twitch_irc::transport::tcp::TCPTransport<twitch_irc::transport::tcp::TLS>,
+        StaticLoginCredentials,
+    >,
+    Arc<Mutex<Option<usize>>>,
+    Arc<Mutex<Option<usize>>>,
+    Arc<Mutex<HashMap<String, BetDetails>>>,
+    Arc<Mutex<bool>>,
+    Arc<Mutex<bool>>,
+    Arc<Mutex<HashMap<String, BetDetails>>>,
+) {
     let (tx_twitch, rx_twitch) = channel::<(String, String)>();
     let (input_handle, rx_input) = input_thread();
     let (incoming_messages, client) = prepare_client();
@@ -93,21 +154,48 @@ fn prepare_stuff() -> (std::sync::mpsc::Sender<(String, String)>, std::sync::mps
     let leave = Arc::new(Mutex::new(false));
     let async_side_leave = Arc::clone(&leave);
     let async_side_map = Arc::clone(&map);
-    (tx_twitch, rx_twitch, input_handle, rx_input, incoming_messages, client, default_amount, async_side_default_amount, map, leave, async_side_leave, async_side_map)
+    (
+        tx_twitch,
+        rx_twitch,
+        input_handle,
+        rx_input,
+        incoming_messages,
+        client,
+        default_amount,
+        async_side_default_amount,
+        map,
+        leave,
+        async_side_leave,
+        async_side_map,
+    )
 }
 
 fn save_map(
     map: Arc<Mutex<HashMap<String, BetDetails>>>,
     mut file: File,
+    default_amount: Arc<Mutex<Option<usize>>>,
 ) -> Result<(), Box<dyn Error>> {
-    let ser = serde_json::to_string(
-        &map.lock()
-            .unwrap()
-            .iter()
-            .map(|(id, details)| BetDetailsSerializable::from(details.clone(), id.clone()))
-            .collect::<Vec<BetDetailsSerializable>>(),
-    )?;
-    file.write_all(ser.as_bytes())?;
+    let string = map
+        .lock()
+        .unwrap()
+        .values()
+        .map(|x| {
+            if x.bank_amount > default_amount.lock().unwrap().unwrap() {
+                format!(
+                    "{} gained {} points!\n",
+                    x.name.clone(),
+                    x.bank_amount - default_amount.lock().unwrap().unwrap()
+                )
+            } else {
+                format!(
+                    "{} lost {} points!\n",
+                    x.name.clone(),
+                    default_amount.lock().unwrap().unwrap() - x.bank_amount
+                )
+            }
+        })
+        .collect::<String>();
+    file.write_all(string.as_bytes())?;
     println!("Saved!");
 
     Ok(())
@@ -194,13 +282,6 @@ fn handle_priv_msg(
     }
 }
 
-fn parse_hashmap(mut file: File) -> Result<HashMap<String, BetDetails>, Box<dyn Error>> {
-    let mut buf = String::new();
-    file.read_to_string(&mut buf)?;
-    let vec: Vec<BetDetailsSerializable> = serde_json::from_str(&buf)?;
-    Ok(vec.into_iter().map(|x| x.into()).collect())
-}
-
 fn get_from_file() -> (String, String) {
     let raw = fs::read_to_string("authentication.txt").expect("Could not open authentication.txt!");
     let lines = raw.lines().collect::<Vec<_>>();
@@ -257,44 +338,5 @@ impl BetDetails {
             times_betted: 0,
             times_right: 0,
         }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct BetDetailsSerializable {
-    id: String,
-    name: String,
-    bank_amount: usize,
-    bet_amount: Option<usize>,
-    number_betted_on: Option<u8>,
-    times_betted: u8,
-    times_right: u8,
-}
-
-impl BetDetailsSerializable {
-    fn from(details: BetDetails, id: String) -> BetDetailsSerializable {
-        BetDetailsSerializable {
-            id,
-            name: details.name,
-            bank_amount: details.bank_amount,
-            bet_amount: details.bet_amount,
-            number_betted_on: details.number_betted_on,
-            times_betted: details.times_betted,
-            times_right: details.times_right,
-        }
-    }
-
-    fn into(self) -> (String, BetDetails) {
-        (
-            self.id,
-            BetDetails {
-                name: self.name,
-                bank_amount: self.bank_amount,
-                bet_amount: self.bet_amount,
-                number_betted_on: self.number_betted_on,
-                times_betted: self.times_betted,
-                times_right: self.times_right,
-            },
-        )
     }
 }

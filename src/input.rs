@@ -8,7 +8,6 @@ use std::{
 #[derive(Debug)]
 pub enum InputtedCommand {
     Start { amount: usize },
-    StartFromFile { file: File, amount: usize },
     Save { file: File },
     EndRound { correct_answer: u8 },
     Exit,
@@ -20,9 +19,8 @@ pub fn input_thread() -> (JoinHandle<()>, Receiver<InputtedCommand>) {
         \nCommands: \n\n\
         help                          -  displays this help message.\n\
         start [amount]                -  starts the program with a new user hashmap and the given amount for each user's starting bank amount.\n\
-        startff [file_name] [amount]  -  starts the program with a user hashmap to deserialise from the file name, and the given amount for each user's starting bank amount.\n\
-        save [file_name]              -  saves the state to be deserialised with the startff command into the file at the file's name.\n\
-        endround [correct_answer]     -  ends the round and does the proper changes for the answers. correct_answer must be 1 or 2. Also prints the top three players, with their scores.\n\
+        save [file_name]              -  saves the state to be read and applied. The argument 'file_name' is the name where the results should be saved to.\n\
+        endround [correct_answer]     -  ends the round and does the proper changes for the answers. correct_answer must be 1 or 2.\n\
         exit                          -  exits the program.\n";
         println!("This is the IFT chatbot program! Type 'help' into the terminal for a help message!");
         let mut has_asked_to_exit = false;
@@ -34,11 +32,6 @@ pub fn input_thread() -> (JoinHandle<()>, Receiver<InputtedCommand>) {
                 "start" => {if start_command(&inp, &tx) {
                         continue;
                     }},
-                "startff" => {
-                    if startff(&inp, &tx) {
-                        continue;
-                    }
-                },
                 "save" => {
                     if save(&inp, &tx) {
                         continue;
@@ -96,24 +89,6 @@ fn save(inp: &[&str], tx: &Sender<InputtedCommand>) -> bool {
         tx.send(InputtedCommand::Save { file }).unwrap();
     } else {
         println!("Couldn't create a file with name {} here!", inp[1]);
-    }
-    false
-}
-
-fn startff(inp: &[&str], tx: &Sender<InputtedCommand>) -> bool {
-    if inp.len() < 3 {
-        println!("Not enough arguments!");
-        return true;
-    }
-    if let Ok(amt) = inp[2].parse::<usize>() {
-        if let Ok(file) = File::open(inp[1]) {
-            tx.send(InputtedCommand::StartFromFile { file, amount: amt })
-                .unwrap();
-        } else {
-            println!("Could not open file with name {} here!", inp[1]);
-        }
-    } else {
-        println!("Invalid number argument!")
     }
     false
 }
