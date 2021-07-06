@@ -22,11 +22,6 @@ use crate::input::input_thread;
 #[allow(unreachable_code, clippy::mutex_atomic)]
 #[tokio::main]
 async fn main() {
-    if !cfg!(debug_assertions) {
-        panic!(
-            "Don't forget to change to keshy's twitch channel and implement display of winners!"
-        );
-    }
     let (
         tx_twitch,
         rx_twitch,
@@ -56,7 +51,7 @@ async fn main() {
             }
         }
     });
-    client.join(LOGIN.to_string());
+    client.join("keshysushi".to_string());
     let client = Rc::new(RefCell::new(client));
     println!("Bot has connected!");
     loop {
